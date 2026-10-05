@@ -1,19 +1,21 @@
 (function () {
-  var card = document.querySelector("[data-vote-start]");
+  var card = document.querySelector("[data-countdown]");
   if (card) {
-    var voteStart = Number(card.getAttribute("data-vote-start"));
+    var countdownKey = card.getAttribute("data-countdown-key") || "vote";
+    var target = Number(card.getAttribute("data-countdown"));
     var serverNow = Number(card.getAttribute("data-server-now"));
     var offset = serverNow - Date.now();
     var clock = card.querySelector("[data-clock]");
     var button = document.getElementById("vote-now");
     var startedDisabled = button ? button.disabled : false;
+    var reloadKey = "countdownReloaded:" + countdownKey;
 
     function pad(value) {
       return String(value).padStart(2, "0");
     }
 
     function tick() {
-      var remaining = voteStart - (Date.now() + offset);
+      var remaining = target - (Date.now() + offset);
       if (remaining < 0) {
         remaining = 0;
       }
@@ -25,9 +27,10 @@
         clock.textContent = pad(hours) + ":" + pad(minutes) + ":" + pad(seconds);
       }
       if (remaining <= 0) {
-        if (startedDisabled && button && button.getAttribute("data-reload") === "1") {
-          if (!sessionStorage.getItem("voteReloaded")) {
-            sessionStorage.setItem("voteReloaded", "1");
+        var reloadAtZero = card.getAttribute("data-reload-at-zero") === "1";
+        if (reloadAtZero) {
+          if (!sessionStorage.getItem(reloadKey)) {
+            sessionStorage.setItem(reloadKey, "1");
             window.location.reload();
             return;
           }
@@ -35,8 +38,11 @@
         if (button) {
           button.disabled = false;
         }
+      } else if (startedDisabled && button) {
+        button.disabled = true;
+        sessionStorage.removeItem(reloadKey);
       } else {
-        sessionStorage.removeItem("voteReloaded");
+        sessionStorage.removeItem(reloadKey);
       }
     }
 
@@ -47,16 +53,33 @@
           if (!data || !data.ok) {
             return;
           }
-          voteStart = Number(data.voteStart);
+          if (countdownKey === "reg") {
+            target = Number(data.regStart);
+          } else {
+            target = Number(data.voteStart);
+          }
           offset = Number(data.serverNow) - Date.now();
           var current = document.body.getAttribute("data-phase");
           if (current && data.phase !== current) {
+            if (countdownKey === "vote" && data.phase === "vote") {
+              document.body.setAttribute("data-phase", "vote");
+              tick();
+              return;
+            }
             window.location.reload();
             return;
           }
           tick();
         })
         .catch(function () {});
+    }
+
+    if (button && button.getAttribute("data-go")) {
+      button.addEventListener("click", function () {
+        if (!button.disabled) {
+          window.location.href = button.getAttribute("data-go");
+        }
+      });
     }
 
     tick();
@@ -93,6 +116,23 @@
       correctLevel: window.QRCode.CorrectLevel.M
     });
   }
+
+  document.querySelectorAll("form[data-confirm-schedule]").forEach(function (form) {
+    form.addEventListener("submit", function (event) {
+      var changed = false;
+      form.querySelectorAll("input").forEach(function (input) {
+        if (input.type === "hidden") {
+          return;
+        }
+        if (input.value !== input.defaultValue) {
+          changed = true;
+        }
+      });
+      if (changed && !window.confirm(form.getAttribute("data-confirm-schedule"))) {
+        event.preventDefault();
+      }
+    });
+  });
 
   document.querySelectorAll("form[data-confirm]").forEach(function (form) {
     form.addEventListener("submit", function (event) {

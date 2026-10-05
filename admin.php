@@ -82,11 +82,34 @@ function handle_schedule(): void
         flash('Voting must end after it starts.');
         redirect('admin.php');
     }
-    $stmt = db()->prepare(
-        'UPDATE settings SET event_date = ?, reg_start = ?, vote_start = ?, vote_end = ? WHERE id = 1'
-    );
-    $stmt->execute([$date, $reg, $vote, $end]);
-    flash('Event hours saved.');
+    $current = settings();
+    $unchanged = $current['event_date'] === $date
+        && $current['reg_start'] === $reg
+        && $current['vote_start'] === $vote
+        && $current['vote_end'] === $end;
+    $pdo = db();
+    $pdo->beginTransaction();
+    try {
+        if (!$unchanged) {
+            $pdo->exec('DELETE FROM votes');
+            $pdo->exec('DELETE FROM employees');
+            unset($_SESSION['voter_id'], $_SESSION['pending_code']);
+        }
+        $stmt = $pdo->prepare(
+            'UPDATE settings SET event_date = ?, reg_start = ?, vote_start = ?, vote_end = ? WHERE id = 1'
+        );
+        $stmt->execute([$date, $reg, $vote, $end]);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        flash('The schedule could not be saved.');
+        redirect('admin.php');
+    }
+    flash($unchanged
+        ? 'Event hours saved.'
+        : 'New schedule saved. Previous registrations and votes were removed.');
     redirect('admin.php');
 }
 
@@ -174,7 +197,11 @@ function render_dashboard(): void
     echo '<h2>Event hours</h2>';
     echo '<p class="hint">' . h(date_label($bounds['reg'])) . ' · registration ' . h(clock_label($bounds['reg']));
     echo ' · voting ' . h(clock_label($bounds['vote'])) . ' to ' . h(clock_label($bounds['end'])) . '</p>';
-    echo '<form class="hours" method="post" action="admin.php">';
+    echo '<form class="hours" method="post" action="admin.php"';
+    if ((int) $counts['people'] > 0 || (int) $counts['ballots'] > 0) {
+        echo ' data-confirm-schedule="Saving a different schedule removes the previous registrations and votes. Continue?"';
+    }
+    echo '>';
     echo csrf_field();
     echo '<input type="hidden" name="action" value="save_schedule">';
     echo '<label for="event_date">Event date</label>';
@@ -188,6 +215,7 @@ function render_dashboard(): void
     echo '<input id="vote_end" type="time" name="vote_end" required value="' . h(time_input_value($settings['vote_end'])) . '"></div>';
     echo '</div>';
     echo '<button class="btn" type="submit">Save hours</button>';
+    echo '<p class="hint">Saving a different date or time clears the previous registrations and votes.</p>';
     echo '</form></section>';
 
     echo '<section class="card">';

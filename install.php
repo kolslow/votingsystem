@@ -52,7 +52,9 @@ $pdo->exec(
         code CHAR(6) NOT NULL,
         created_at DATETIME NOT NULL,
         confirmed_at DATETIME NULL DEFAULT NULL,
-        UNIQUE KEY uq_employees_code (code)
+        device_token CHAR(32) NULL DEFAULT NULL,
+        UNIQUE KEY uq_employees_code (code),
+        UNIQUE KEY uq_employees_device (device_token)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
 );
 

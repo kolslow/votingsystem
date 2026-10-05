@@ -36,22 +36,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $settings = settings();
 $bounds = event_bounds($settings);
 $phase = phase_of($settings);
+$device = device_registration();
+if ($device) {
+    $_SESSION['pending_code'] = $device['code'];
+} elseif (($_COOKIE['outfit_device'] ?? '') !== '') {
+    clear_device_cookie();
+}
 $pending = !empty($_SESSION['pending_code'])
     ? find_employee_by_code((string) $_SESSION['pending_code'])
     : null;
+if ($pending && ($phase === 'early' || $phase === 'register')) {
+    lock_device($pending, $bounds['end']);
+    $pending = find_employee_by_id((int) $pending['id']);
+}
 $ready = $pending !== null && !empty($pending['confirmed_at']);
 $voter = !empty($_SESSION['voter_id'])
     ? find_employee_by_id((int) $_SESSION['voter_id'])
     : null;
 $view = $_GET['view'] ?? '';
 
+if ($view === 'enter' && $phase !== 'vote' && $phase !== 'ended') {
+    redirect($pending ? 'index.php?view=code' : 'index.php');
+}
+
 layout_start('Best Outfit', '', [
     'data-phase' => $phase,
     'data-watch' => '1',
 ]);
 
-if ($view === 'code' && $pending && $phase !== 'ended') {
-    render_code_screen($pending, $bounds, $phase, $ready);
+if (($view === 'code' || $view === 'wait') && $phase !== 'ended' && $pending) {
+    render_code_screen($pending, $bounds);
 } elseif ($voter && has_voted((int) $voter['id']) && $view !== 'enter') {
     render_thanks($voter);
 } elseif ($phase === 'vote' && $voter && $view !== 'enter') {
@@ -79,6 +93,10 @@ function handle_register(): void
         flash('Registration is closed.');
         redirect('index.php');
     }
+    if (device_registration() || registered_on_this_device()) {
+        flash('This device is already registered for this event.');
+        redirect('index.php');
+    }
 
     $name = clean_text((string) ($_POST['name'] ?? ''), 80);
     $department = clean_text((string) ($_POST['department'] ?? ''), 80);
@@ -92,9 +110,10 @@ function handle_register(): void
         redirect('index.php');
     }
 
+    $token = bin2hex(random_bytes(16));
     $pdo = db();
     $stmt = $pdo->prepare(
-        'INSERT INTO employees (name, department, gender, code, created_at) VALUES (?, ?, ?, ?, ?)'
+        'INSERT INTO employees (name, department, gender, code, created_at, device_token) VALUES (?, ?, ?, ?, ?, ?)'
     );
     $stmt->execute([
         $name,
@@ -102,11 +121,34 @@ function handle_register(): void
         $gender,
         generate_code(),
         app_now()->format('Y-m-d H:i:s'),
+        $token,
     ]);
     $employee = find_employee_by_id((int) $pdo->lastInsertId());
     $_SESSION['pending_code'] = $employee['code'];
     unset($_SESSION['voter_id']);
+    remember_device($token, $bounds['end']->modify('+12 hours'));
     redirect('index.php?view=code');
+}
+
+function registered_on_this_device(): bool
+{
+    if (empty($_SESSION['pending_code'])) {
+        return false;
+    }
+    return find_employee_by_code((string) $_SESSION['pending_code']) !== null;
+}
+
+function lock_device(array $employee, DateTimeImmutable $voteEnd): void
+{
+    $token = (string) ($employee['device_token'] ?? '');
+    if ($token === '') {
+        $token = bin2hex(random_bytes(16));
+        $stmt = db()->prepare('UPDATE employees SET device_token = ? WHERE id = ? AND device_token IS NULL');
+        $stmt->execute([$token, (int) $employee['id']]);
+    }
+    if (($_COOKIE['outfit_device'] ?? '') !== $token) {
+        remember_device($token, $voteEnd->modify('+12 hours'));
+    }
 }
 
 function handle_code(): void
@@ -119,28 +161,20 @@ function handle_code(): void
 
     if ($code === '') {
         flash('Enter your voting code.');
-        redirect($phase === 'vote' ? 'index.php?view=enter' : 'index.php');
+        redirect($phase === 'vote' ? 'index.php?view=enter' : 'index.php?view=code');
     }
     if (!$employee) {
         flash('That code was not found.');
-        redirect($phase === 'vote' ? 'index.php?view=enter' : 'index.php');
+        redirect($phase === 'vote' ? 'index.php?view=enter' : 'index.php?view=code');
     }
 
     if ($phase === 'early' || $phase === 'register') {
-        $stmt = db()->prepare('UPDATE employees SET confirmed_at = ? WHERE id = ?');
-        $stmt->execute([app_now()->format('Y-m-d H:i:s'), (int) $employee['id']]);
-        $_SESSION['pending_code'] = $employee['code'];
-        unset($_SESSION['voter_id']);
-        flash('Code saved. You can vote when the timer ends.');
+        flash('Voting opens at ' . clock_label($bounds['vote']) . '.');
         redirect('index.php?view=code');
     }
     if ($phase === 'ended') {
         flash('Voting ended at ' . clock_label($bounds['end']) . '.');
         redirect('index.php');
-    }
-    if (empty($employee['confirmed_at'])) {
-        flash('Enter your voting code before voting starts.');
-        redirect('index.php?view=enter');
     }
 
     $_SESSION['pending_code'] = $employee['code'];
@@ -201,10 +235,18 @@ function handle_cast(): void
 function render_waiting(string $phase, array $bounds, ?array $pending, bool $ready): void
 {
     echo '<p class="lede">' . h(date_label($bounds['reg'])) . '</p>';
+    if ($phase === 'register' && $pending) {
+        echo '<section class="card">';
+        echo '<h2>Already registered</h2>';
+        echo '<p class="hint">' . h($pending['name']) . ' is registered on this device for this event.</p>';
+        echo '<a class="btn" href="index.php?view=code">Continue</a>';
+        echo '</section>';
+        return;
+    }
     if ($phase === 'register') {
         echo '<section class="card">';
         echo '<h2>Register</h2>';
-        echo '<p class="hint">You will get a voting code. Type it in before voting starts.</p>';
+        echo '<p class="hint">You will get a voting code to use when voting starts.</p>';
         echo '<form method="post" action="index.php">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="register">';
@@ -217,24 +259,14 @@ function render_waiting(string $phase, array $bounds, ?array $pending, bool $rea
         echo '<label class="gender-opt"><input type="radio" name="gender" value="male" required><span>Male</span></label>';
         echo '<label class="gender-opt"><input type="radio" name="gender" value="female" required><span>Female</span></label>';
         echo '</div>';
-        echo '<button class="btn" type="submit">Get my code</button>';
+        echo '<button class="btn" type="submit">Submit registration</button>';
         echo '</form></section>';
-        if ($pending && !$ready) {
-            echo '<p class="center"><a class="text-link" href="index.php?view=code">Enter your voting code</a></p>';
-        }
-    } else {
-        echo '<section class="card">';
-        echo '<h2>Registration opens at ' . h(clock_label($bounds['reg'])) . '</h2>';
-        echo '<p class="hint">Come back then to join the male and female lists.</p>';
-        echo '</section>';
+        return;
     }
-    if ($phase === 'register' && !$ready) {
-        render_save_code_form();
-    }
-    render_countdown($bounds, $ready && $pending ? $pending['code'] : null);
+    render_registration_countdown($bounds);
 }
 
-function render_code_screen(array $employee, array $bounds, string $phase, bool $ready): void
+function render_code_screen(array $employee, array $bounds): void
 {
     echo '<section class="card code-card">';
     echo '<p class="kicker">You are in</p>';
@@ -242,47 +274,28 @@ function render_code_screen(array $employee, array $bounds, string $phase, bool 
     echo '<p class="hint">' . h($employee['department']) . ' · ' . h(ucfirst($employee['gender'])) . '</p>';
     echo '<p class="label">Your voting code</p>';
     echo '<p class="code">' . h($employee['code']) . '</p>';
-    echo '<p class="hint">Type this code below before voting starts. It works on any phone or Wi-Fi.</p>';
+    echo '<p class="hint">Keep this code. You will type it when voting starts. It works on any phone or Wi-Fi.</p>';
     echo '</section>';
-    if ($phase === 'vote' && $ready) {
-        echo '<form method="post" action="index.php">';
-        echo csrf_field();
-        echo '<input type="hidden" name="action" value="enter_code">';
-        echo '<input type="hidden" name="code" value="' . h($employee['code']) . '">';
-        echo '<button class="btn" type="submit">Vote now</button>';
-        echo '</form>';
-    } elseif ($phase === 'vote') {
-        echo '<section class="card"><h2>Code not saved</h2>';
-        echo '<p class="hint">Enter your voting code before voting starts.</p></section>';
-    } elseif ($ready) {
-        echo '<section class="card"><p class="kicker">Code saved</p>';
-        echo '<p class="hint">You can vote when the timer ends.</p></section>';
-        render_countdown($bounds, $employee['code']);
-    } else {
-        render_save_code_form();
-        render_countdown($bounds, null);
-    }
+    render_countdown($bounds, null);
 }
 
-function render_save_code_form(): void
+function render_registration_countdown(array $bounds): void
 {
-    echo '<section class="card">';
-    echo '<h2>Voting code</h2>';
-    echo '<p class="hint">Required before voting starts.</p>';
-    echo '<form method="post" action="index.php">';
-    echo csrf_field();
-    echo '<input type="hidden" name="action" value="enter_code">';
-    echo '<label for="code">Voting code</label>';
-    echo '<input id="code" class="code-input" name="code" required maxlength="6" autocapitalize="characters" autocomplete="off" spellcheck="false" data-code-input placeholder="K7M4QP">';
-    echo '<button class="btn" type="submit">Save code</button>';
-    echo '</form></section>';
+    $regMs = ms_of($bounds['reg']);
+    $nowMs = ms_of(app_now());
+    echo '<section class="card countdown-card" data-countdown="' . $regMs . '" data-countdown-key="reg" data-server-now="' . $nowMs . '" data-reload-at-zero="1">';
+    echo '<p class="kicker">Registration opens in</p>';
+    echo '<p class="clock" data-clock>--:--:--</p>';
+    echo '<p class="hint">Opens at ' . h(clock_label($bounds['reg'])) . '</p>';
+    echo '<p class="hint">Voting opens at ' . h(clock_label($bounds['vote'])) . '.</p>';
+    echo '</section>';
 }
 
 function render_countdown(array $bounds, ?string $code): void
 {
     $voteMs = ms_of($bounds['vote']);
     $nowMs = ms_of(app_now());
-    echo '<section class="card countdown-card" data-vote-start="' . $voteMs . '" data-server-now="' . $nowMs . '">';
+    echo '<section class="card countdown-card" data-countdown="' . $voteMs . '" data-countdown-key="vote" data-server-now="' . $nowMs . '">';
     echo '<p class="kicker">Voting starts in</p>';
     echo '<p class="clock" data-clock>--:--:--</p>';
     echo '<p class="hint">Opens at ' . h(clock_label($bounds['vote'])) . '</p>';
@@ -294,7 +307,7 @@ function render_countdown(array $bounds, ?string $code): void
         echo '<button class="btn" id="vote-now" type="submit" disabled>Vote now</button>';
         echo '</form>';
     } else {
-        echo '<button class="btn" id="vote-now" type="button" data-reload="1" disabled>Vote now</button>';
+        echo '<button class="btn" id="vote-now" type="button" data-go="index.php?view=enter" disabled>Vote now</button>';
     }
     echo '</section>';
 }
@@ -303,12 +316,12 @@ function render_code_entry(): void
 {
     echo '<section class="card">';
     echo '<h2>Voting is open</h2>';
-    echo '<p class="hint">Enter the code you saved before voting started.</p>';
+    echo '<p class="hint">Enter your voting code.</p>';
     echo '<form method="post" action="index.php">';
     echo csrf_field();
     echo '<input type="hidden" name="action" value="enter_code">';
     echo '<label for="code">Voting code</label>';
-    echo '<input id="code" class="code-input" name="code" required maxlength="6" autocapitalize="characters" autocomplete="off" spellcheck="false" data-code-input placeholder="K7M4QP">';
+    echo '<input id="code" class="code-input" name="code" required maxlength="6" autocapitalize="characters" autocomplete="off" spellcheck="false" data-code-input>';
     echo '<button class="btn" type="submit">Vote now</button>';
     echo '</form></section>';
 }

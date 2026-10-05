@@ -5,15 +5,20 @@ require __DIR__ . '/config.php';
 
 date_default_timezone_set(APP_TIMEZONE);
 
-$cookiePath = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
-$cookiePath = rtrim($cookiePath, '/') . '/';
 session_set_cookie_params([
     'lifetime' => 0,
-    'path' => $cookiePath === '//' ? '/' : $cookiePath,
+    'path' => app_cookie_path(),
     'httponly' => true,
     'samesite' => 'Lax',
 ]);
 session_start();
+
+function app_cookie_path(): string
+{
+    $cookiePath = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
+    $cookiePath = rtrim($cookiePath, '/') . '/';
+    return $cookiePath === '//' ? '/' : $cookiePath;
+}
 
 function pdo_options(): array
 {
@@ -264,7 +269,46 @@ function ensure_columns(): void
     if (!$confirmed->fetch()) {
         db()->exec('ALTER TABLE employees ADD confirmed_at DATETIME NULL DEFAULT NULL AFTER created_at');
     }
+    $device = db()->query("SHOW COLUMNS FROM employees LIKE 'device_token'");
+    if (!$device->fetch()) {
+        db()->exec('ALTER TABLE employees ADD device_token CHAR(32) NULL DEFAULT NULL AFTER confirmed_at');
+        db()->exec('ALTER TABLE employees ADD UNIQUE KEY uq_employees_device (device_token)');
+    }
     $ready = true;
+}
+
+function remember_device(string $token, DateTimeImmutable $expires): void
+{
+    setcookie('outfit_device', $token, [
+        'expires' => $expires->getTimestamp(),
+        'path' => app_cookie_path(),
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+    $_COOKIE['outfit_device'] = $token;
+}
+
+function clear_device_cookie(): void
+{
+    setcookie('outfit_device', '', [
+        'expires' => time() - 3600,
+        'path' => app_cookie_path(),
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+    unset($_COOKIE['outfit_device']);
+}
+
+function device_registration(): ?array
+{
+    $token = (string) ($_COOKIE['outfit_device'] ?? '');
+    if (!preg_match('/^[a-f0-9]{32}$/', $token)) {
+        return null;
+    }
+    $stmt = db()->prepare('SELECT * FROM employees WHERE device_token = ?');
+    $stmt->execute([$token]);
+    $row = $stmt->fetch();
+    return $row ?: null;
 }
 
 function candidates(string $gender, int $excludeId = 0): array
@@ -438,6 +482,6 @@ function layout_end(bool $withQr = false): void
     if ($withQr) {
         echo '<script src="assets/qrcode.js"></script>';
     }
-    echo '<script src="assets/app.js"></script>';
+    echo '<script src="assets/app.js?v=' . filemtime(__DIR__ . '/assets/app.js') . '"></script>';
     echo '</body></html>';
 }

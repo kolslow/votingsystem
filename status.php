@@ -17,6 +17,7 @@ $bounds = event_bounds($settings);
 echo json_encode([
     'ok' => true,
     'phase' => phase_of($settings),
+    'regStart' => ms_of($bounds['reg']),
     'voteStart' => ms_of($bounds['vote']),
     'serverNow' => ms_of(app_now()),
 ]);
