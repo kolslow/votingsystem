@@ -64,6 +64,8 @@ layout_start('Best Outfit', '', [
     'data-watch' => '1',
 ]);
 
+echo '<p class="lede">' . icon('calendar') . '<span>' . h(date_label($bounds['reg'])) . '</span></p>';
+
 if (($view === 'code' || $view === 'wait') && $phase !== 'ended' && $pending) {
     render_code_screen($pending, $bounds);
 } elseif ($voter && has_voted((int) $voter['id']) && $view !== 'enter') {
@@ -164,7 +166,7 @@ function handle_code(): void
         redirect($phase === 'vote' ? 'index.php?view=enter' : 'index.php?view=code');
     }
     if (!$employee) {
-        flash('That code was not found.');
+        flash('That code was not found.', 'error');
         redirect($phase === 'vote' ? 'index.php?view=enter' : 'index.php?view=code');
     }
 
@@ -181,7 +183,7 @@ function handle_code(): void
 
     $_SESSION['voter_id'] = (int) $employee['id'];
     if (has_voted((int) $employee['id'])) {
-        flash('This code has already been used.');
+        flash('This code has already been used.', 'error');
     }
     redirect('index.php');
 }
@@ -201,7 +203,7 @@ function handle_cast(): void
         redirect('index.php');
     }
     if (has_voted($voterId)) {
-        flash('This code has already been used.');
+        flash('This code has already been used.', 'error');
         redirect('index.php');
     }
 
@@ -214,7 +216,7 @@ function handle_cast(): void
         redirect('index.php');
     }
     if ($maleId === $voterId || $femaleId === $voterId) {
-        flash('You cannot vote for yourself.');
+        flash('You cannot vote for yourself.', 'error');
         redirect('index.php');
     }
 
@@ -224,106 +226,154 @@ function handle_cast(): void
         );
         $stmt->execute([$voterId, $maleId, $femaleId, app_now()->format('Y-m-d H:i:s')]);
     } catch (PDOException $e) {
-        flash('This code has already been used.');
+        flash('This code has already been used.', 'error');
         redirect('index.php');
     }
 
-    flash('Your vote is in.');
+    $_SESSION['celebrate'] = true;
     redirect('index.php');
+}
+
+function render_status_card(string $label, string $value, string $note, bool $live = false): void
+{
+    echo '<section class="card status-card' . ($live ? ' is-live' : '') . '">';
+    echo '<span class="status-indicator"><span class="status-dot"></span></span>';
+    echo '<div class="status-body">';
+    echo '<p class="status-label">' . h($label) . '</p>';
+    echo '<p class="status-value">' . h($value) . '</p>';
+    if ($note !== '') {
+        echo '<p class="status-note">' . h($note) . '</p>';
+    }
+    echo '</div></section>';
 }
 
 function render_waiting(string $phase, array $bounds, ?array $pending, bool $ready): void
 {
-    echo '<p class="lede">' . h(date_label($bounds['reg'])) . '</p>';
     if ($phase === 'register' && $pending) {
-        echo '<section class="card">';
-        echo '<h2>Already registered</h2>';
-        echo '<p class="hint">' . h($pending['name']) . ' is registered on this device for this event.</p>';
-        echo '<a class="btn" href="index.php?view=code">Continue</a>';
+        echo '<section class="card saved-card">';
+        echo '<span class="saved-icon">' . icon('check') . '</span>';
+        echo '<div><p class="kicker">Already registered</p>';
+        echo '<h2>' . h($pending['name']) . '</h2>';
+        echo '<p class="hint">' . h($pending['name']) . ' is registered on this device for this event.</p></div>';
         echo '</section>';
+        echo '<a class="btn btn-xl" href="index.php?view=code"><span>Continue</span>' . icon('arrow') . '</a>';
         return;
     }
     if ($phase === 'register') {
+        render_status_card(
+            'Registration',
+            'Open now',
+            'Closes when voting starts at ' . clock_label($bounds['vote']) . '.',
+            true
+        );
         echo '<section class="card">';
-        echo '<h2>Register</h2>';
-        echo '<p class="hint">You will get a voting code to use when voting starts.</p>';
+        echo '<div class="card-head"><span class="card-head-icon">' . icon('user-plus') . '</span>';
+        echo '<div><h2>Register</h2><p class="hint">You will get a voting code to use when voting starts.</p></div></div>';
         echo '<form method="post" action="index.php">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="register">';
         echo '<label for="name">Name</label>';
-        echo '<input id="name" name="name" required maxlength="80" autocomplete="name">';
+        echo '<input id="name" name="name" required maxlength="80" autocomplete="name" placeholder="Juan Dela Cruz">';
         echo '<label for="department">Department</label>';
-        echo '<input id="department" name="department" required maxlength="80" autocomplete="organization">';
+        echo '<input id="department" name="department" required maxlength="80" autocomplete="organization" placeholder="Operations">';
         echo '<p class="label">Category</p>';
         echo '<div class="gender">';
-        echo '<label class="gender-opt"><input type="radio" name="gender" value="male" required><span>Male</span></label>';
-        echo '<label class="gender-opt"><input type="radio" name="gender" value="female" required><span>Female</span></label>';
+        echo '<label class="gender-opt"><input type="radio" name="gender" value="male" required><span>' . icon('male') . 'Male</span></label>';
+        echo '<label class="gender-opt"><input type="radio" name="gender" value="female" required><span>' . icon('female') . 'Female</span></label>';
         echo '</div>';
-        echo '<button class="btn" type="submit">Submit registration</button>';
+        echo '<button class="btn" type="submit"><span>Submit registration</span>' . icon('arrow') . '</button>';
         echo '</form></section>';
         return;
     }
+    render_status_card(
+        'Registration',
+        'Opens at ' . clock_label($bounds['reg']),
+        'Come back then to join the male and female lists.'
+    );
     render_registration_countdown($bounds);
 }
 
 function render_code_screen(array $employee, array $bounds): void
 {
-    echo '<section class="card code-card">';
+    echo '<div class="stage"><section class="card code-card">';
     echo '<p class="kicker">You are in</p>';
     echo '<h2>' . h($employee['name']) . '</h2>';
     echo '<p class="hint">' . h($employee['department']) . ' · ' . h(ucfirst($employee['gender'])) . '</p>';
     echo '<p class="label">Your voting code</p>';
-    echo '<p class="code">' . h($employee['code']) . '</p>';
+    echo '<p class="code" aria-label="' . h(implode(' ', str_split($employee['code']))) . '">';
+    foreach (str_split($employee['code']) as $i => $char) {
+        echo '<span style="--i:' . $i . '" aria-hidden="true">' . h($char) . '</span>';
+    }
+    echo '</p>';
     echo '<p class="hint">Keep this code. You will type it when voting starts. It works on any phone or Wi-Fi.</p>';
-    echo '</section>';
+    echo '</section></div>';
     render_countdown($bounds, null);
+}
+
+function render_timer_blocks(): void
+{
+    echo '<div class="timer" data-clock role="timer">';
+    foreach (['h' => 'Hours', 'm' => 'Minutes', 's' => 'Seconds'] as $unit => $unitLabel) {
+        if ($unit !== 'h') {
+            echo '<span class="time-sep" aria-hidden="true">:</span>';
+        }
+        echo '<div class="time-block"><span class="time-num" data-unit="' . $unit . '">--</span>';
+        echo '<span class="time-label">' . $unitLabel . '</span></div>';
+    }
+    echo '</div>';
 }
 
 function render_registration_countdown(array $bounds): void
 {
     $regMs = ms_of($bounds['reg']);
     $nowMs = ms_of(app_now());
+    echo '<div class="stage">';
     echo '<section class="card countdown-card" data-countdown="' . $regMs . '" data-countdown-key="reg" data-server-now="' . $nowMs . '" data-reload-at-zero="1">';
-    echo '<p class="kicker">Registration opens in</p>';
-    echo '<p class="clock" data-clock>--:--:--</p>';
-    echo '<p class="hint">Opens at ' . h(clock_label($bounds['reg'])) . '</p>';
-    echo '<p class="hint">Voting opens at ' . h(clock_label($bounds['vote'])) . '.</p>';
-    echo '</section>';
+    echo '<p class="kicker" data-countdown-title>Registration opens in</p>';
+    render_timer_blocks();
+    echo '<p class="hint countdown-note">' . icon('clock') . '<span>Opens at ' . h(clock_label($bounds['reg']));
+    echo ' · Voting opens at ' . h(clock_label($bounds['vote'])) . '</span></p>';
+    echo '</section></div>';
 }
 
 function render_countdown(array $bounds, ?string $code): void
 {
     $voteMs = ms_of($bounds['vote']);
     $nowMs = ms_of(app_now());
+    $opens = clock_label($bounds['vote']);
+    $label = '<span class="when-locked">' . icon('lock') . '<span>Locked until ' . h($opens) . '</span></span>'
+        . '<span class="when-ready"><span>Vote now</span>' . icon('arrow') . '</span>';
+    echo '<div class="stage">';
     echo '<section class="card countdown-card" data-countdown="' . $voteMs . '" data-countdown-key="vote" data-server-now="' . $nowMs . '">';
-    echo '<p class="kicker">Voting starts in</p>';
-    echo '<p class="clock" data-clock>--:--:--</p>';
-    echo '<p class="hint">Opens at ' . h(clock_label($bounds['vote'])) . '</p>';
+    echo '<p class="kicker" data-countdown-title>Voting starts in</p>';
+    render_timer_blocks();
+    echo '<p class="hint countdown-note">' . icon('clock') . '<span>Voting opens at ' . h($opens) . '</span></p>';
     if ($code !== null) {
         echo '<form method="post" action="index.php">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="enter_code">';
         echo '<input type="hidden" name="code" value="' . h($code) . '">';
-        echo '<button class="btn" id="vote-now" type="submit" disabled>Vote now</button>';
+        echo '<button class="btn btn-xl btn-vote" id="vote-now" type="submit" disabled>' . $label . '</button>';
         echo '</form>';
     } else {
-        echo '<button class="btn" id="vote-now" type="button" data-go="index.php?view=enter" disabled>Vote now</button>';
+        echo '<button class="btn btn-xl btn-vote" id="vote-now" type="button" data-go="index.php?view=enter" disabled>' . $label . '</button>';
     }
-    echo '</section>';
+    echo '</section></div>';
 }
 
 function render_code_entry(): void
 {
-    echo '<section class="card">';
-    echo '<h2>Voting is open</h2>';
-    echo '<p class="hint">Enter your voting code.</p>';
+    render_status_card('Voting', 'Open now', 'Enter your voting code.', true);
+    echo '<div class="stage"><section class="card">';
+    echo '<div class="card-head"><span class="card-head-icon">' . icon('ticket') . '</span>';
+    echo '<div><h2>Voting is open</h2><p class="hint">Your code unlocks one ballot.</p></div></div>';
     echo '<form method="post" action="index.php">';
     echo csrf_field();
     echo '<input type="hidden" name="action" value="enter_code">';
     echo '<label for="code">Voting code</label>';
     echo '<input id="code" class="code-input" name="code" required maxlength="6" autocapitalize="characters" autocomplete="off" spellcheck="false" data-code-input>';
-    echo '<button class="btn" type="submit">Vote now</button>';
-    echo '</form></section>';
+    echo '<button class="btn btn-xl" type="submit"><span>Vote now</span>' . icon('arrow') . '</button>';
+    echo '</form></section></div>';
 }
 
 function render_ballot(array $voter): void
@@ -331,28 +381,36 @@ function render_ballot(array $voter): void
     $voterId = (int) $voter['id'];
     $males = candidates('male', $voterId);
     $females = candidates('female', $voterId);
-    echo '<section class="card">';
-    echo '<p class="kicker">Voting as</p>';
+    echo '<section class="card voter-card">';
+    echo '<span class="avatar avatar-lg" aria-hidden="true">' . h(initials($voter['name'])) . '</span>';
+    echo '<div><p class="kicker">Voting as</p>';
     echo '<h2>' . h($voter['name']) . '</h2>';
-    echo '<p class="hint">Pick one other man and one other woman. You are not on your own list.</p>';
+    echo '<p class="hint">Pick one other man and one other woman. You are not on your own list.</p></div>';
     if ($males === [] || $females === []) {
-        echo '<p>Each list needs someone else registered. You cannot vote for yourself.</p>';
+        echo '<p class="voter-note">Each list needs someone else registered. You cannot vote for yourself.</p>';
         echo '</section>';
         return;
     }
+    echo '</section>';
     echo '<form method="post" action="index.php" data-ballot>';
     echo csrf_field();
     echo '<input type="hidden" name="action" value="cast">';
-    echo '<h3 class="list-title list-title-male">Best male outfit</h3>';
+    echo '<section class="card ballot-card ballot-male">';
+    echo '<h3 class="list-title list-title-male">' . icon('male') . '<span>Best male outfit</span></h3>';
+    echo '<div class="choices">';
     foreach ($males as $person) {
         render_choice('male_id', $person);
     }
-    echo '<h3 class="list-title list-title-female">Best female outfit</h3>';
+    echo '</div></section>';
+    echo '<section class="card ballot-card ballot-female">';
+    echo '<h3 class="list-title list-title-female">' . icon('female') . '<span>Best female outfit</span></h3>';
+    echo '<div class="choices">';
     foreach ($females as $person) {
         render_choice('female_id', $person);
     }
-    echo '<button class="btn" type="submit">Submit vote</button>';
-    echo '</form></section>';
+    echo '</div></section>';
+    echo '<div class="ballot-submit"><button class="btn btn-xl" type="submit"><span>Submit vote</span>' . icon('arrow') . '</button></div>';
+    echo '</form>';
 }
 
 function render_choice(string $field, array $person): void
@@ -360,24 +418,32 @@ function render_choice(string $field, array $person): void
     $id = $field . '-' . $person['id'];
     echo '<label class="choice" for="' . h($id) . '">';
     echo '<input id="' . h($id) . '" type="radio" name="' . h($field) . '" value="' . (int) $person['id'] . '" required>';
-    echo '<span><strong>' . h($person['name']) . '</strong>';
+    echo '<span class="avatar" aria-hidden="true">' . h(initials($person['name'])) . '</span>';
+    echo '<span class="choice-text"><strong>' . h($person['name']) . '</strong>';
     echo '<small>' . h($person['department']) . '</small></span>';
+    echo '<span class="choice-check">' . icon('check') . '</span>';
     echo '</label>';
 }
 
 function render_thanks(array $voter): void
 {
-    echo '<section class="card">';
-    echo '<p class="kicker">Vote recorded</p>';
-    echo '<h2>Thank you, ' . h($voter['name']) . '</h2>';
-    echo '<p class="hint">This code cannot be used again.</p>';
-    echo '</section>';
+    $celebrate = !empty($_SESSION['celebrate']);
+    unset($_SESSION['celebrate']);
+    echo '<div class="stage"><section class="card thanks-card"' . ($celebrate ? ' data-celebrate' : '') . '>';
+    echo '<div class="success-mark" aria-hidden="true"><svg viewBox="0 0 52 52">';
+    echo '<circle cx="26" cy="26" r="24"/><path d="M15 27l7 7 15-15"/></svg></div>';
+    echo '<p class="kicker">Vote counted</p>';
+    echo '<h2>Thank you for voting!</h2>';
+    echo '<p class="hint">' . h($voter['name']) . ', your ballot is in. This code cannot be used again.</p>';
+    echo '</section></div>';
 }
 
 function render_ended(array $bounds): void
 {
-    echo '<section class="card">';
+    echo '<div class="stage"><section class="card ended-card">';
+    echo '<span class="ended-icon">' . icon('flag') . '</span>';
+    echo '<p class="kicker">That is a wrap</p>';
     echo '<h2>Voting has ended</h2>';
-    echo '<p class="hint">Ballots closed at ' . h(clock_label($bounds['end'])) . '.</p>';
-    echo '</section>';
+    echo '<p class="hint">Ballots closed at ' . h(clock_label($bounds['end'])) . '. Winners will be announced on stage.</p>';
+    echo '</section></div>';
 }

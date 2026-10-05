@@ -33,14 +33,26 @@ $counts = db()->query(
         (SELECT COUNT(*) FROM votes) AS ballots'
 )->fetch();
 
-layout_start('Results', 'admin', ['data-refresh' => '5']);
-echo '<p class="status-row"><span class="pill">' . h(phase_label($phase)) . '</span>';
-echo '<a class="text-link" href="admin.php">Back to admin</a></p>';
-echo '<p class="lede">' . h(date_label($bounds['vote'])) . ' · ' . (int) $counts['ballots'] . ' votes</p>';
-echo '<section class="card">';
-render_tally('Best male outfit', 'male', 'male_id');
-echo '</section>';
-echo '<section class="card">';
-render_tally('Best female outfit', 'female', 'female_id');
-echo '</section>';
+$emptyNote = match ($phase) {
+    'early' => 'Registration opens at ' . clock_label($bounds['reg']) . '.',
+    'register' => 'Registration is open now.',
+    default => 'No one registered in this category.',
+};
+$ballots = (int) $counts['ballots'];
+
+layout_start('Results', 'admin wide', ['data-phase' => $phase, 'data-live-results' => '5']);
+echo '<div class="results-meta">';
+if ($phase === 'vote') {
+    echo '<span class="pill pill-live"><span class="live-dot"></span>Live results</span>';
+} else {
+    echo '<span class="pill"><span class="pill-dot"></span>' . h(phase_label($phase)) . '</span>';
+}
+echo '<p class="meta-line">' . h(date_label($bounds['vote'])) . '<i aria-hidden="true"></i>';
+echo '<b data-total-votes>' . $ballots . '</b>&nbsp;<span data-total-label>' . ($ballots === 1 ? 'total vote' : 'total votes') . '</span></p>';
+echo '<a class="text-link" href="admin.php">Back to admin</a>';
+echo '</div>';
+echo '<div class="stage stage-wide"><div class="boards">';
+render_tally('Best male outfit', 'male', 'male_id', $emptyNote);
+render_tally('Best female outfit', 'female', 'female_id', $emptyNote);
+echo '</div></div>';
 layout_end();

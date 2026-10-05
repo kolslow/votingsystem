@@ -55,12 +55,13 @@ function handle_login(): void
     $password = (string) ($_POST['password'] ?? '');
     $settings = settings();
     if (!password_verify($password, $settings['admin_password_hash'])) {
-        flash('Wrong password.');
+        flash('Wrong password. Try again.', 'error');
         redirect('admin.php');
     }
     session_regenerate_id(true);
     $_SESSION['admin'] = true;
     $_SESSION['csrf'] = bin2hex(random_bytes(16));
+    flash('Signed in. Welcome back.', 'success');
     redirect('admin.php');
 }
 
@@ -104,12 +105,12 @@ function handle_schedule(): void
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
         }
-        flash('The schedule could not be saved.');
+        flash('The schedule could not be saved.', 'error');
         redirect('admin.php');
     }
     flash($unchanged
         ? 'Event hours saved.'
-        : 'New schedule saved. Previous registrations and votes were removed.');
+        : 'New schedule saved. Previous registrations and votes were removed.', 'success');
     redirect('admin.php');
 }
 
@@ -126,7 +127,11 @@ function handle_delete(): void
         'DELETE FROM employees WHERE id = ? AND NOT EXISTS (SELECT 1 FROM votes WHERE voter_id = employees.id)'
     );
     $stmt->execute([$id]);
-    flash($stmt->rowCount() === 1 ? 'Registration removed.' : 'That registration could not be removed.');
+    if ($stmt->rowCount() === 1) {
+        flash('Registration removed.', 'success');
+    } else {
+        flash('That registration could not be removed.', 'error');
+    }
     redirect('admin.php');
 }
 
@@ -136,7 +141,7 @@ function handle_password(): void
     $current = (string) ($_POST['current_password'] ?? '');
     $next = (string) ($_POST['new_password'] ?? '');
     if (!password_verify($current, $settings['admin_password_hash'])) {
-        flash('Current password is wrong.');
+        flash('Current password is wrong.', 'error');
         redirect('admin.php');
     }
     if (strlen($next) < 6) {
@@ -145,26 +150,50 @@ function handle_password(): void
     }
     $stmt = db()->prepare('UPDATE settings SET admin_password_hash = ? WHERE id = 1');
     $stmt->execute([password_hash($next, PASSWORD_DEFAULT)]);
-    flash('Password updated.');
+    flash('Password updated.', 'success');
     redirect('admin.php');
 }
 
 function render_login(): void
 {
-    layout_start('Admin', 'admin');
-    echo '<section class="card narrow">';
-    echo '<h2>Sign in</h2>';
-    if (password_verify(DEFAULT_ADMIN_PASSWORD, settings()['admin_password_hash'])) {
-        echo '<p class="hint">Default password: ' . h(DEFAULT_ADMIN_PASSWORD) . '</p>';
+    $flash = take_flash();
+    $failed = $flash !== null && $flash['type'] === 'error';
+    layout_start('Admin', 'admin auth', [], false);
+    echo '<div class="stage"><section class="auth-card' . ($failed ? ' is-error' : '') . '" data-auth>';
+    echo '<span class="auth-icon">' . icon('shield-lock') . '</span>';
+    echo '<p class="brand">FEMFI</p>';
+    echo '<h1 class="auth-title">Admin Portal</h1>';
+    echo '<p class="auth-sub">Sign in to manage the event and view results.</p>';
+    if ($flash !== null) {
+        echo '<p class="auth-msg auth-msg-' . ($failed ? 'error' : 'notice') . '" role="' . ($failed ? 'alert' : 'status') . '" data-auth-msg>';
+        echo icon($failed ? 'alert' : 'info') . '<span>' . h($flash['message']) . '</span></p>';
     }
     echo '<form method="post" action="admin.php">';
     echo csrf_field();
     echo '<input type="hidden" name="action" value="login">';
     echo '<label for="password">Password</label>';
-    echo '<input id="password" type="password" name="password" required autocomplete="current-password">';
-    echo '<button class="btn" type="submit">Sign in</button>';
-    echo '</form></section>';
+    echo '<div class="field field-password">';
+    echo '<span class="field-icon">' . icon('lock') . '</span>';
+    echo '<input id="password" type="password" name="password" required autocomplete="current-password" autofocus'
+        . ($failed ? ' aria-invalid="true"' : '') . ' placeholder="Enter admin password">';
+    echo '<button type="button" class="pw-toggle" data-pw-toggle aria-label="Show password" aria-pressed="false">';
+    echo icon('eye', 'icon icon-show') . icon('eye-off', 'icon icon-hide') . '</button>';
+    echo '</div>';
+    echo '<button class="btn btn-xl" type="submit"><span>Sign in</span>' . icon('arrow') . '</button>';
+    echo '</form>';
+    echo '<a class="auth-back" href="index.php">' . icon('vote') . '<span>Back to voting</span></a>';
+    echo '</section></div>';
     layout_end();
+}
+
+function password_field(string $id, string $name, string $autocomplete, string $extra = ''): string
+{
+    return '<div class="field field-password">'
+        . '<span class="field-icon">' . icon('key') . '</span>'
+        . '<input id="' . h($id) . '" type="password" name="' . h($name) . '" required autocomplete="' . h($autocomplete) . '"' . $extra . '>'
+        . '<button type="button" class="pw-toggle" data-pw-toggle aria-label="Show password" aria-pressed="false">'
+        . icon('eye', 'icon icon-show') . icon('eye-off', 'icon icon-hide') . '</button>'
+        . '</div>';
 }
 
 function render_dashboard(): void
@@ -189,14 +218,31 @@ function render_dashboard(): void
     $canDelete = $phase === 'early' || $phase === 'register';
     $url = attendee_url();
 
-    layout_start('Admin', 'admin');
-    echo '<p class="status-row"><span class="pill">' . h(phase_label($phase)) . '</span>';
-    echo '<a class="text-link" href="index.php">Attendee page</a></p>';
+    layout_start('Admin', 'admin wide');
+    echo '<div class="results-meta">';
+    echo '<span class="pill' . ($phase === 'vote' ? ' pill-live' : '') . '"><span class="' . ($phase === 'vote' ? 'live-dot' : 'pill-dot') . '"></span>' . h(phase_label($phase)) . '</span>';
+    echo '<p class="meta-line">' . h(date_label($bounds['reg'])) . '</p>';
+    echo '<a class="text-link" href="index.php">Attendee page</a>';
+    echo '</div>';
 
+    echo '<div class="stats-grid">';
+    $tiles = [
+        ['users', 'Registered', (int) $counts['people'], ''],
+        ['male', 'Male', (int) $counts['males'], ''],
+        ['female', 'Female', (int) $counts['females'], ''],
+        ['vote', 'Votes cast', (int) $counts['ballots'], ' stat-accent'],
+    ];
+    foreach ($tiles as $i => [$iconName, $tileLabel, $value, $accent]) {
+        echo '<div class="stat' . $accent . '" style="--i:' . $i . '"><span class="stat-icon">' . icon($iconName) . '</span>';
+        echo '<b>' . $value . '</b><span class="stat-label">' . h($tileLabel) . '</span></div>';
+    }
+    echo '</div>';
+
+    echo '<div class="admin-grid">';
     echo '<section class="card">';
-    echo '<h2>Event hours</h2>';
-    echo '<p class="hint">' . h(date_label($bounds['reg'])) . ' · registration ' . h(clock_label($bounds['reg']));
-    echo ' · voting ' . h(clock_label($bounds['vote'])) . ' to ' . h(clock_label($bounds['end'])) . '</p>';
+    echo '<div class="card-head"><span class="card-head-icon">' . icon('calendar') . '</span><div><h2>Event hours</h2>';
+    echo '<p class="hint">Registration ' . h(clock_label($bounds['reg']));
+    echo ' · voting ' . h(clock_label($bounds['vote'])) . ' to ' . h(clock_label($bounds['end'])) . '</p></div></div>';
     echo '<form class="hours" method="post" action="admin.php"';
     if ((int) $counts['people'] > 0 || (int) $counts['ballots'] > 0) {
         echo ' data-confirm-schedule="Saving a different schedule removes the previous registrations and votes. Continue?"';
@@ -214,36 +260,41 @@ function render_dashboard(): void
     echo '<div><label for="vote_end">Voting ends</label>';
     echo '<input id="vote_end" type="time" name="vote_end" required value="' . h(time_input_value($settings['vote_end'])) . '"></div>';
     echo '</div>';
-    echo '<button class="btn" type="submit">Save hours</button>';
-    echo '<p class="hint">Saving a different date or time clears the previous registrations and votes.</p>';
+    echo '<button class="btn" type="submit"><span>Save hours</span>' . icon('check') . '</button>';
+    echo '<p class="hint form-note">' . icon('alert') . '<span>Saving a different date or time clears the previous registrations and votes.</span></p>';
     echo '</form></section>';
 
-    echo '<section class="card">';
-    echo '<h2>Venue QR</h2>';
-    echo '<p class="hint">This code opens the registration and voting page. It updates from this server address.</p>';
+    echo '<section class="card qr-card">';
+    echo '<div class="card-head"><span class="card-head-icon">' . icon('qr') . '</span><div><h2>Venue QR</h2>';
+    echo '<p class="hint">Opens the registration and voting page from this server address.</p></div></div>';
     echo '<div id="qrcode" class="qr" data-url="' . h($url) . '"></div>';
-    echo '<p class="url">' . h($url) . '</p>';
+    echo '<p class="url">' . icon('link') . '<span>' . h($url) . '</span></p>';
     echo '</section>';
 
-    echo '<section class="card">';
-    echo '<h2>Roster</h2>';
-    echo '<p class="stats">' . (int) $counts['people'] . ' registered · ';
+    echo '<section class="card span-2">';
+    echo '<div class="card-head"><span class="card-head-icon">' . icon('users') . '</span><div><h2>Roster</h2>';
+    echo '<p class="hint">' . (int) $counts['people'] . ' registered · ';
     echo (int) $counts['males'] . ' male · ' . (int) $counts['females'] . ' female · ';
-    echo (int) $counts['ballots'] . ' votes</p>';
+    echo (int) $counts['ballots'] . ' votes</p></div></div>';
     if ($roster === []) {
-        echo '<p class="hint">No one has registered yet.</p>';
+        echo '<div class="empty empty-inline"><span class="empty-icon">' . icon('users') . '</span>';
+        echo '<strong>No one has registered yet.</strong></div>';
     }
+    echo '<div class="roster">';
     foreach ($roster as $person) {
         echo '<article class="roster-item">';
-        echo '<div><strong>' . h($person['name']) . '</strong>';
+        echo '<span class="avatar avatar-' . ($person['gender'] === 'male' ? 'male' : 'female') . '" aria-hidden="true">' . h(initials($person['name'])) . '</span>';
+        echo '<div class="roster-info"><strong>' . h($person['name']) . '</strong>';
         echo '<span>' . h($person['department']) . ' · ' . h(ucfirst($person['gender'])) . '</span></div>';
         echo '<p class="code code-sm">' . h($person['code']) . '</p>';
+        echo '<div class="roster-badges">';
         if (!empty($person['confirmed_at'])) {
             echo '<span class="badge">Code saved</span>';
         }
         if ((int) $person['voted'] === 1) {
-            echo '<span class="badge">Voted</span>';
+            echo '<span class="badge badge-solid">Voted</span>';
         }
+        echo '</div>';
         if ($canDelete && (int) $person['voted'] !== 1) {
             echo '<form method="post" action="admin.php" data-confirm="Remove this registration?">';
             echo csrf_field();
@@ -254,30 +305,33 @@ function render_dashboard(): void
         }
         echo '</article>';
     }
+    echo '</div>';
+    echo '</section>';
+
+    echo '<section class="card results-cta">';
+    echo '<div class="card-head"><span class="card-head-icon">' . icon('chart') . '</span><div><h2>Results</h2>';
+    echo '<p class="hint">Live male and female standings on their own page.</p></div></div>';
+    echo '<a class="btn" href="results.php"><span>Open results</span>' . icon('arrow') . '</a>';
     echo '</section>';
 
     echo '<section class="card">';
-    echo '<h2>Results</h2>';
-    echo '<p class="hint">Male and female standings are on their own page.</p>';
-    echo '<a class="btn" href="results.php">Open results</a>';
-    echo '</section>';
-
-    echo '<section class="card">';
-    echo '<h2>Password</h2>';
+    echo '<div class="card-head"><span class="card-head-icon">' . icon('key') . '</span><div><h2>Password</h2>';
+    echo '<p class="hint">Use at least 6 characters.</p></div></div>';
     echo '<form method="post" action="admin.php">';
     echo csrf_field();
     echo '<input type="hidden" name="action" value="change_password">';
     echo '<label for="current_password">Current password</label>';
-    echo '<input id="current_password" type="password" name="current_password" required autocomplete="current-password">';
+    echo password_field('current_password', 'current_password', 'current-password');
     echo '<label for="new_password">New password</label>';
-    echo '<input id="new_password" type="password" name="new_password" required minlength="6" autocomplete="new-password">';
-    echo '<button class="btn btn-navy" type="submit">Update password</button>';
+    echo password_field('new_password', 'new_password', 'new-password', ' minlength="6"');
+    echo '<button class="btn btn-navy" type="submit"><span>Update password</span></button>';
     echo '</form>';
     echo '<form class="logout" method="post" action="admin.php">';
     echo csrf_field();
     echo '<input type="hidden" name="action" value="logout">';
-    echo '<button class="btn btn-ghost" type="submit">Log out</button>';
+    echo '<button class="btn btn-ghost btn-block" type="submit">' . icon('logout') . '<span>Log out</span></button>';
     echo '</form></section>';
+    echo '</div>';
 
     layout_end(true);
 }

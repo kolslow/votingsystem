@@ -39,7 +39,7 @@ $pdo->exec(
         vote_start TIME NOT NULL,
         vote_end TIME NOT NULL,
         admin_password_hash VARCHAR(255) NOT NULL,
-        public_url VARCHAR(255) NOT NULL DEFAULT ''
+        public_url VARCHAR(255) NOT NULL DEFAULT \'\'
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
 );
 
@@ -81,7 +81,7 @@ $insert->execute([$today, '18:00:00', '20:00:00', '21:00:00', $hash]);
 layout_start('Install');
 echo '<section class="card"><h2>Ready</h2>';
 echo '<p>Registration defaults to 6:00 PM and voting defaults to 8:00 PM. Change both in admin.</p>';
-echo '<p>Admin password: <strong>' . h(DEFAULT_ADMIN_PASSWORD) . '</strong></p>';
+echo '<p>Sign in with the default admin password from <strong>config.php</strong>, then change it in admin.</p>';
 echo '<a class="btn" href="admin.php">Open admin</a>';
 echo '<a class="btn btn-navy" href="index.php">Open voting</a>';
 echo '</section>';
