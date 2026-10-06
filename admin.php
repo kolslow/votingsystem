@@ -6,7 +6,7 @@ require __DIR__ . '/lib.php';
 if (!mysql_ok()) {
     layout_start('Admin', 'admin');
     echo '<section class="card"><h2>MySQL is not running</h2>';
-    echo '<p>Start MySQL in the XAMPP control panel, then refresh this page.</p></section>';
+    echo '<p>' . h(db_down_message()) . '</p></section>';
     layout_end();
     exit;
 }

@@ -6,7 +6,7 @@ require __DIR__ . '/lib.php';
 if (!mysql_ok()) {
     layout_start('Install');
     echo '<section class="card"><h2>MySQL is not running</h2>';
-    echo '<p>Start MySQL in the XAMPP control panel, then refresh this page.</p></section>';
+    echo '<p>' . h(db_down_message()) . '</p></section>';
     layout_end();
     exit;
 }
@@ -25,11 +25,15 @@ if (installed()) {
 $today = app_now()->format('Y-m-d');
 $hash = password_hash(DEFAULT_ADMIN_PASSWORD, PASSWORD_DEFAULT);
 
-$pdo = server_pdo();
-$pdo->exec(
-    'CREATE DATABASE IF NOT EXISTS `' . DB_NAME . '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'
-);
-$pdo->exec('USE `' . DB_NAME . '`');
+try {
+    $pdo = server_pdo();
+    $pdo->exec(
+        'CREATE DATABASE IF NOT EXISTS `' . DB_NAME . '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'
+    );
+    $pdo->exec('USE `' . DB_NAME . '`');
+} catch (Throwable $e) {
+    $pdo = db();
+}
 
 $pdo->exec(
     'CREATE TABLE settings (

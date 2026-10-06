@@ -32,11 +32,25 @@ function pdo_options(): array
 function mysql_ok(): bool
 {
     try {
-        server_pdo();
+        db();
         return true;
     } catch (Throwable $e) {
-        return false;
+        try {
+            server_pdo();
+            return true;
+        } catch (Throwable $e2) {
+            return false;
+        }
     }
+}
+
+function db_dsn(bool $withDatabase): string
+{
+    $dsn = 'mysql:host=' . DB_HOST . ';charset=utf8mb4';
+    if ($withDatabase) {
+        $dsn .= ';dbname=' . DB_NAME;
+    }
+    return $dsn;
 }
 
 function server_pdo(): PDO
@@ -45,12 +59,8 @@ function server_pdo(): PDO
     if ($pdo instanceof PDO) {
         return $pdo;
     }
-    $pdo = new PDO(
-        'mysql:host=' . DB_HOST . ';charset=utf8mb4',
-        DB_USER,
-        DB_PASS,
-        pdo_options()
-    );
+    $withDatabase = DB_HOST !== '127.0.0.1';
+    $pdo = new PDO(db_dsn($withDatabase), DB_USER, DB_PASS, pdo_options());
     return $pdo;
 }
 
@@ -60,26 +70,26 @@ function db(): PDO
     if ($pdo instanceof PDO) {
         return $pdo;
     }
-    $pdo = new PDO(
-        'mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4',
-        DB_USER,
-        DB_PASS,
-        pdo_options()
-    );
+    $pdo = new PDO(db_dsn(true), DB_USER, DB_PASS, pdo_options());
     return $pdo;
 }
 
 function installed(): bool
 {
     try {
-        $stmt = server_pdo()->prepare(
-            'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?'
-        );
-        $stmt->execute([DB_NAME, 'settings']);
+        $stmt = db()->query("SHOW TABLES LIKE 'settings'");
         return (bool) $stmt->fetchColumn();
     } catch (Throwable $e) {
         return false;
     }
+}
+
+function db_down_message(): string
+{
+    if (DB_HOST === '127.0.0.1') {
+        return 'Start MySQL in the XAMPP control panel, then refresh this page.';
+    }
+    return 'The hosting database could not be reached. Refresh this page after the connection is available.';
 }
 
 function settings(): array
