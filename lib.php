@@ -496,7 +496,7 @@ function voters_for(string $column): array
     return $grouped;
 }
 
-function render_tally(string $title, string $gender, string $column, string $emptyNote = '', bool $showVoters = false): void
+function render_tally(string $title, string $gender, string $column, string $emptyNote = '', bool $showVoters = false, int $limit = 0): void
 {
     if ($column !== 'male_id' && $column !== 'female_id') {
         return;
@@ -562,10 +562,11 @@ function render_tally(string $title, string $gender, string $column, string $emp
         echo '<p class="board-status is-idle">' . icon('clock') . '<span>No votes yet</span></p>';
     }
 
+    $shown = $limit > 0 ? array_slice($rows, 0, $limit) : $rows;
     echo '<ol class="ranks">';
     $rank = 0;
     $previous = null;
-    foreach ($rows as $index => $row) {
+    foreach ($shown as $index => $row) {
         $votes = (int) $row['votes'];
         if ($votes !== $previous) {
             $rank = $index + 1;
@@ -587,13 +588,12 @@ function render_tally(string $title, string $gender, string $column, string $emp
         echo '<div class="meter" role="presentation"><span data-meter style="--w:' . $pct . '%"></span></div>';
         $people = $voters[(int) $row['id']] ?? [];
         if ($people !== []) {
-            echo '<div class="voters">';
-            echo '<p class="voters-label">Voted by</p>';
-            echo '<ul>';
+            echo '<div class="voter-source" hidden data-voter-source data-candidate="' . (int) $row['id'] . '" data-name="' . h($row['name']) . '" data-department="' . h($row['department']) . '"><ul>';
             foreach ($people as $voter) {
                 echo '<li><strong>' . h($voter['name']) . '</strong><span>' . h($voter['department']) . '</span></li>';
             }
             echo '</ul></div>';
+            echo '<button class="view-votes" type="button" data-view-votes>View votes</button>';
         }
         echo '</div>';
         echo '</li>';

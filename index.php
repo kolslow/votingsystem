@@ -27,6 +27,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         handle_register();
     } elseif ($action === 'enter_code') {
         handle_code();
+    } elseif ($action === 'pick_male') {
+        handle_pick_male();
     } elseif ($action === 'cast') {
         handle_cast();
     }
@@ -55,7 +57,11 @@ $voter = !empty($_SESSION['voter_id'])
     : null;
 $view = $_GET['view'] ?? '';
 
-if ($view === 'enter' && $phase !== 'vote' && $phase !== 'ended') {
+if ($phase === 'ended') {
+    redirect('results.php');
+}
+
+if ($view === 'enter' && $phase !== 'vote') {
     redirect($pending ? 'index.php?view=code' : 'index.php');
 }
 
@@ -71,11 +77,9 @@ if (($view === 'code' || $view === 'wait') && $phase !== 'ended' && $pending) {
 } elseif ($voter && has_voted((int) $voter['id']) && $view !== 'enter') {
     render_thanks($voter, $bounds);
 } elseif ($phase === 'vote' && $voter && $view !== 'enter') {
-    render_ballot($voter);
+    render_ballot($voter, $view === 'female' ? 'female' : 'male');
 } elseif ($phase === 'vote') {
     render_code_entry();
-} elseif ($phase === 'ended') {
-    render_ended($bounds);
 } else {
     render_waiting($phase, $bounds, $pending, $ready);
 }
@@ -175,8 +179,7 @@ function handle_code(): void
         redirect('index.php?view=code');
     }
     if ($phase === 'ended') {
-        flash('Voting ended at ' . clock_label($bounds['end']) . '.');
-        redirect('index.php');
+        redirect('results.php');
     }
 
     $_SESSION['pending_code'] = $employee['code'];
@@ -186,6 +189,22 @@ function handle_code(): void
         flash('This code has already been used.', 'error');
     }
     redirect('index.php');
+}
+
+function handle_pick_male(): void
+{
+    $voter = current_voter();
+    if (!$voter) {
+        return;
+    }
+    $maleId = (int) ($_POST['male_id'] ?? 0);
+    $male = $maleId > 0 ? find_employee_by_id($maleId) : null;
+    if (!$male || $male['gender'] !== 'male' || $maleId === (int) $voter['id']) {
+        flash('Pick one other man.');
+        redirect('index.php?view=male');
+    }
+    $_SESSION['pick_male'] = $maleId;
+    redirect('index.php?view=female');
 }
 
 function handle_cast(): void
@@ -207,17 +226,17 @@ function handle_cast(): void
         redirect('index.php');
     }
 
-    $maleId = (int) ($_POST['male_id'] ?? 0);
+    $maleId = (int) ($_POST['male_id'] ?? $_SESSION['pick_male'] ?? 0);
     $femaleId = (int) ($_POST['female_id'] ?? 0);
     $male = $maleId > 0 ? find_employee_by_id($maleId) : null;
     $female = $femaleId > 0 ? find_employee_by_id($femaleId) : null;
     if (!$male || $male['gender'] !== 'male' || !$female || $female['gender'] !== 'female') {
         flash('Pick one male outfit and one female outfit.');
-        redirect('index.php');
+        redirect('index.php?view=female');
     }
     if ($maleId === $voterId || $femaleId === $voterId) {
         flash('You cannot vote for yourself.', 'error');
-        redirect('index.php');
+        redirect($femaleId === $voterId ? 'index.php?view=female' : 'index.php?view=male');
     }
 
     try {
@@ -225,6 +244,7 @@ function handle_cast(): void
             'INSERT INTO votes (voter_id, male_id, female_id, created_at) VALUES (?, ?, ?, ?)'
         );
         $stmt->execute([$voterId, $maleId, $femaleId, app_now()->format('Y-m-d H:i:s')]);
+        unset($_SESSION['pick_male']);
     } catch (PDOException $e) {
         flash('This code has already been used.', 'error');
         redirect('index.php');
@@ -372,41 +392,68 @@ function render_code_entry(): void
     echo '</form></section></div>';
 }
 
-function render_ballot(array $voter): void
+function current_voter(): ?array
+{
+    $settings = settings();
+    if (phase_of($settings) !== 'vote') {
+        flash('Voting is not open.');
+        redirect('index.php');
+    }
+    $voterId = (int) ($_SESSION['voter_id'] ?? 0);
+    $voter = $voterId > 0 ? find_employee_by_id($voterId) : null;
+    if (!$voter) {
+        flash('Enter your voting code first.');
+        redirect('index.php');
+    }
+    if (has_voted((int) $voter['id'])) {
+        flash('This code has already been used.', 'error');
+        redirect('index.php');
+    }
+    return $voter;
+}
+
+function render_ballot(array $voter, string $gender): void
 {
     $voterId = (int) $voter['id'];
-    $males = candidates('male', $voterId);
-    $females = candidates('female', $voterId);
+    $isFemale = $gender === 'female';
+    if ($isFemale && empty($_SESSION['pick_male'])) {
+        redirect('index.php?view=male');
+    }
+    $people = candidates($isFemale ? 'female' : 'male', $voterId);
+    $field = $isFemale ? 'female_id' : 'male_id';
     echo '<section class="card voter-card">';
     echo '<span class="avatar avatar-lg" aria-hidden="true">' . h(initials($voter['name'])) . '</span>';
-    echo '<div><p class="kicker">Voting as</p>';
+    echo '<div><p class="kicker">' . ($isFemale ? 'Step 2 of 2' : 'Step 1 of 2') . '</p>';
     echo '<h2>' . h($voter['name']) . '</h2>';
-    echo '<p class="hint">Pick one other man and one other woman. You are not on your own list.</p></div>';
-    if ($males === [] || $females === []) {
-        echo '<p class="voter-note">Each list needs someone else registered. You cannot vote for yourself.</p>';
-        echo '</section>';
+    echo '<p class="hint">Pick one other ' . ($isFemale ? 'woman' : 'man') . '. You are not on your own list.</p></div>';
+    echo '</section>';
+    if ($people === []) {
+        echo '<section class="card"><p class="voter-note">This list needs someone else registered. You cannot vote for yourself.</p></section>';
         return;
     }
-    echo '</section>';
     echo '<form method="post" action="index.php" data-ballot>';
     echo csrf_field();
-    echo '<input type="hidden" name="action" value="cast">';
-    echo '<section class="card ballot-card ballot-male">';
-    echo '<h3 class="list-title list-title-male">' . icon('male') . '<span>Best male outfit</span></h3>';
-    echo '<div class="choices">';
-    foreach ($males as $person) {
-        render_choice('male_id', $person);
+    echo '<input type="hidden" name="action" value="' . ($isFemale ? 'cast' : 'pick_male') . '">';
+    if ($isFemale) {
+        echo '<input type="hidden" name="male_id" value="' . (int) $_SESSION['pick_male'] . '">';
+    }
+    echo '<section class="card ballot-card ballot-' . ($isFemale ? 'female' : 'male') . '">';
+    echo '<h3 class="list-title list-title-' . ($isFemale ? 'female' : 'male') . '">' . icon($isFemale ? 'female' : 'male');
+    echo '<span>Best ' . ($isFemale ? 'female' : 'male') . ' outfit</span></h3>';
+    if ($isFemale) {
+        echo '<p class="hint"><a class="text-link" href="index.php?view=male">Back to male outfits</a></p>';
+    }
+    echo '<label for="choice-search">Search</label>';
+    echo '<input id="choice-search" type="search" data-choice-search placeholder="Search name or department" autocomplete="off">';
+    echo '<p class="hint" data-choice-empty hidden>No one matches that search.</p>';
+    echo '<div class="choices" data-choices>';
+    foreach ($people as $person) {
+        render_choice($field, $person);
     }
     echo '</div></section>';
-    echo '<section class="card ballot-card ballot-female">';
-    echo '<h3 class="list-title list-title-female">' . icon('female') . '<span>Best female outfit</span></h3>';
-    echo '<div class="choices">';
-    foreach ($females as $person) {
-        render_choice('female_id', $person);
-    }
-    echo '</div></section>';
-    echo '<div class="ballot-submit"><button class="btn btn-xl" type="submit"><span>Submit vote</span>' . icon('arrow') . '</button></div>';
-    echo '</form>';
+    echo '<div class="ballot-submit">';
+    echo '<button class="btn btn-xl" type="submit"><span>' . ($isFemale ? 'Submit vote' : 'Next: female outfits') . '</span>' . icon('arrow') . '</button>';
+    echo '</div></form>';
 }
 
 function render_choice(string $field, array $person): void
@@ -449,15 +496,5 @@ function render_results_countdown(array $bounds): void
     echo '<span class="when-locked"><span>View result</span></span>';
     echo '<span class="when-ready"><span>View result</span>' . icon('arrow') . '</span>';
     echo '</button>';
-    echo '</section></div>';
-}
-
-function render_ended(array $bounds): void
-{
-    echo '<div class="stage"><section class="card ended-card">';
-    echo '<span class="ended-icon">' . icon('flag') . '</span>';
-    echo '<p class="kicker">That is a wrap</p>';
-    echo '<h2>Voting has ended</h2>';
-    echo '<p class="hint">Ballots closed at ' . h(clock_label($bounds['end'])) . '. Winners will be announced on stage.</p>';
     echo '</section></div>';
 }

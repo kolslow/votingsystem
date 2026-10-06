@@ -163,14 +163,185 @@
 
   var qr = document.getElementById("qrcode");
   if (qr && window.QRCode) {
+    var qrUrl = qr.getAttribute("data-url") || "";
     new window.QRCode(qr, {
-      text: qr.getAttribute("data-url"),
+      text: qrUrl,
       width: 220,
       height: 220,
       colorDark: "#000047",
       colorLight: "#ffffff",
       correctLevel: window.QRCode.CorrectLevel.M
     });
+
+    function drawLines(ctx, text, x, y, maxWidth, lineHeight) {
+      var line = "";
+      var lines = [];
+      var i;
+      for (i = 0; i < text.length; i++) {
+        var next = line + text.charAt(i);
+        if (ctx.measureText(next).width > maxWidth && line) {
+          lines.push(line);
+          line = text.charAt(i);
+        } else {
+          line = next;
+        }
+      }
+      if (line) {
+        lines.push(line);
+      }
+      lines.forEach(function (row, index) {
+        ctx.fillText(row, x, y + index * lineHeight);
+      });
+    }
+
+    function buildPoster(url) {
+      var holder = document.createElement("div");
+      holder.setAttribute("aria-hidden", "true");
+      holder.style.cssText = "position:fixed;left:-10000px;top:0;";
+      document.body.appendChild(holder);
+      new window.QRCode(holder, {
+        text: url,
+        width: 900,
+        height: 900,
+        colorDark: "#000047",
+        colorLight: "#ffffff",
+        correctLevel: window.QRCode.CorrectLevel.H
+      });
+      var source = holder.querySelector("canvas");
+      var canvas = document.createElement("canvas");
+      canvas.width = 1240;
+      canvas.height = 1754;
+      var ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#ed5d21";
+      ctx.font = "800 42px 'Plus Jakarta Sans', sans-serif";
+      ctx.fillText("FEMFI", canvas.width / 2, 170);
+      ctx.fillStyle = "#000047";
+      ctx.font = "400 88px 'Archivo Black', sans-serif";
+      ctx.fillText("BEST DRESS", canvas.width / 2, 280);
+      ctx.fillStyle = "#615f80";
+      ctx.font = "600 34px 'Plus Jakarta Sans', sans-serif";
+      ctx.fillText("Scan to register and vote", canvas.width / 2, 350);
+      var box = 920;
+      var x = (canvas.width - box) / 2;
+      var y = 430;
+      ctx.drawImage(source, x, y, box, box);
+      ctx.fillStyle = "#000047";
+      ctx.font = "700 30px 'Plus Jakarta Sans', sans-serif";
+      drawLines(ctx, url, canvas.width / 2, y + box + 90, canvas.width - 160, 42);
+      holder.remove();
+      return canvas;
+    }
+
+    function saveBlob(blob, filename) {
+      var link = document.createElement("a");
+      var href = URL.createObjectURL(blob);
+      link.href = href;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(function () { URL.revokeObjectURL(href); }, 1500);
+    }
+
+    function buildPdf(jpegBytes, pixelW, pixelH) {
+      var pageW = 595.28;
+      var pageH = 841.89;
+      var margin = 28;
+      var scale = Math.min((pageW - margin * 2) / pixelW, (pageH - margin * 2) / pixelH);
+      var drawW = pixelW * scale;
+      var drawH = pixelH * scale;
+      var x = (pageW - drawW) / 2;
+      var y = (pageH - drawH) / 2;
+      var content = "q\n" + drawW.toFixed(2) + " 0 0 " + drawH.toFixed(2) + " " + x.toFixed(2) + " " + y.toFixed(2) + " cm\n/Im0 Do\nQ\n";
+      var encoder = new TextEncoder();
+      var chunks = [];
+      var offsets = [];
+      function pushStr(value) { chunks.push(encoder.encode(value)); }
+      function pushBytes(value) { chunks.push(value); }
+      function lengthSoFar() {
+        var total = 0;
+        chunks.forEach(function (chunk) { total += chunk.length; });
+        return total;
+      }
+      pushStr("%PDF-1.4\n");
+      offsets[1] = lengthSoFar();
+      pushStr("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+      offsets[2] = lengthSoFar();
+      pushStr("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
+      offsets[3] = lengthSoFar();
+      pushStr("3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " + pageW.toFixed(2) + " " + pageH.toFixed(2) + "] /Contents 4 0 R /Resources << /XObject << /Im0 5 0 R >> >> >>\nendobj\n");
+      var contentBytes = encoder.encode(content);
+      offsets[4] = lengthSoFar();
+      pushStr("4 0 obj\n<< /Length " + contentBytes.length + " >>\nstream\n");
+      pushBytes(contentBytes);
+      pushStr("\nendstream\nendobj\n");
+      offsets[5] = lengthSoFar();
+      pushStr("5 0 obj\n<< /Type /XObject /Subtype /Image /Width " + pixelW + " /Height " + pixelH + " /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length " + jpegBytes.length + " >>\nstream\n");
+      pushBytes(jpegBytes);
+      pushStr("\nendstream\nendobj\n");
+      var xrefAt = lengthSoFar();
+      var xref = "xref\n0 6\n0000000000 65535 f \n";
+      var n;
+      for (n = 1; n <= 5; n++) {
+        xref += String(offsets[n]).padStart(10, "0") + " 00000 n \n";
+      }
+      xref += "trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n" + xrefAt + "\n%%EOF";
+      pushStr(xref);
+      return new Blob(chunks, { type: "application/pdf" });
+    }
+
+    function dataUrlBytes(dataUrl) {
+      var binary = atob(dataUrl.split(",")[1]);
+      var bytes = new Uint8Array(binary.length);
+      var i;
+      for (i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return bytes;
+    }
+
+    function printPoster(canvas) {
+      var jpeg = dataUrlBytes(canvas.toDataURL("image/jpeg", 0.95));
+      var pdf = buildPdf(jpeg, canvas.width, canvas.height);
+      var href = URL.createObjectURL(pdf);
+      var frame = document.createElement("iframe");
+      frame.setAttribute("aria-hidden", "true");
+      frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
+      frame.src = href;
+      document.body.appendChild(frame);
+      frame.onload = function () {
+        var win = frame.contentWindow;
+        var cleanup = function () {
+          URL.revokeObjectURL(href);
+          frame.remove();
+        };
+        win.onafterprint = cleanup;
+        win.focus();
+        win.print();
+        window.setTimeout(cleanup, 120000);
+      };
+    }
+
+    var downloadButton = document.querySelector("[data-qr-download]");
+    var printButton = document.querySelector("[data-qr-print]");
+    if (downloadButton) {
+      downloadButton.addEventListener("click", function () {
+        var poster = buildPoster(qrUrl);
+        poster.toBlob(function (blob) {
+          blob.arrayBuffer().then(function (buffer) {
+            saveBlob(buildPdf(new Uint8Array(buffer), poster.width, poster.height), "femfi-venue-qr.pdf");
+          });
+        }, "image/jpeg", 0.95);
+      });
+    }
+    if (printButton) {
+      printButton.addEventListener("click", function () {
+        printPoster(buildPoster(qrUrl));
+      });
+    }
   }
 
   /* ---------- Forms ---------- */
@@ -196,6 +367,28 @@
     form.addEventListener("submit", function (event) {
       if (!window.confirm(form.getAttribute("data-confirm"))) {
         event.preventDefault();
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-choice-search]").forEach(function (input) {
+    var list = document.querySelector("[data-choices]");
+    var empty = document.querySelector("[data-choice-empty]");
+    if (!list) {
+      return;
+    }
+    input.addEventListener("input", function () {
+      var query = input.value.trim().toLowerCase();
+      var shown = 0;
+      list.querySelectorAll(".choice").forEach(function (choice) {
+        var match = query === "" || choice.textContent.toLowerCase().indexOf(query) !== -1;
+        choice.hidden = !match;
+        if (match) {
+          shown += 1;
+        }
+      });
+      if (empty) {
+        empty.hidden = shown !== 0;
       }
     });
   });
@@ -344,6 +537,67 @@
     replay(el, "num-bump");
   }
 
+  var voteModal = document.querySelector("[data-vote-modal]");
+  var voteModalList = voteModal ? voteModal.querySelector("[data-modal-list]") : null;
+  var voteModalName = voteModal ? voteModal.querySelector("[data-modal-name]") : null;
+  var voteModalMeta = voteModal ? voteModal.querySelector("[data-modal-meta]") : null;
+
+  function fillVoteModal(source) {
+    if (!voteModal || !source) {
+      return;
+    }
+    var name = source.getAttribute("data-name") || "";
+    var department = source.getAttribute("data-department") || "";
+    var count = source.querySelectorAll("li").length;
+    voteModalName.textContent = name;
+    voteModalMeta.textContent = (department ? department + " · " : "") + count + (count === 1 ? " vote" : " votes");
+    voteModalList.innerHTML = source.querySelector("ul").innerHTML;
+    voteModal.setAttribute("data-candidate", source.getAttribute("data-candidate") || "");
+  }
+
+  function refreshVoteModal() {
+    if (!voteModal || !voteModal.open) {
+      return;
+    }
+    var id = voteModal.getAttribute("data-candidate");
+    var source = id ? document.querySelector('[data-voter-source][data-candidate="' + id + '"]') : null;
+    if (!source) {
+      voteModal.close();
+      return;
+    }
+    fillVoteModal(source);
+  }
+
+  if (voteModal) {
+    document.addEventListener("click", function (event) {
+      var opener = event.target.closest ? event.target.closest("[data-view-votes]") : null;
+      if (opener) {
+        event.preventDefault();
+        var row = opener.closest(".rank-row");
+        var source = row ? row.querySelector("[data-voter-source]") : null;
+        if (!source) {
+          return;
+        }
+        fillVoteModal(source);
+        if (!voteModal.open) {
+          voteModal.showModal();
+        }
+        return;
+      }
+      if (event.target.closest && event.target.closest("[data-modal-close]")) {
+        voteModal.close();
+      }
+    });
+    voteModal.addEventListener("click", function (event) {
+      if (event.target === voteModal) {
+        voteModal.close();
+      }
+    });
+    voteModal.addEventListener("close", function () {
+      voteModal.removeAttribute("data-candidate");
+    });
+  }
+
   function patchBoard(board, next) {
     if (board.getAttribute("data-sig") !== next.getAttribute("data-sig")) {
       board.innerHTML = next.innerHTML;
@@ -421,6 +675,7 @@
               patchBoard(board, next);
             }
           });
+          refreshVoteModal();
         })
         .catch(function () {})
         .then(function () { refreshing = false; });

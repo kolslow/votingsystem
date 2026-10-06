@@ -61,7 +61,18 @@ if ($isAdmin) {
 }
 echo '</div>';
 echo '<div class="stage stage-wide"><div class="boards">';
-render_tally('Best male outfit', 'male', 'male_id', $emptyNote, $isAdmin);
-render_tally('Best female outfit', 'female', 'female_id', $emptyNote, $isAdmin);
+render_tally('Best male outfit', 'male', 'male_id', $emptyNote, $isAdmin, 5);
+render_tally('Best female outfit', 'female', 'female_id', $emptyNote, $isAdmin, 5);
 echo '</div></div>';
+if ($isAdmin) {
+    echo '<dialog class="vote-modal" data-vote-modal aria-labelledby="vote-modal-title">';
+    echo '<div class="vote-modal-card">';
+    echo '<header class="vote-modal-head">';
+    echo '<div><p class="kicker">Voted by</p><h2 id="vote-modal-title" data-modal-name></h2>';
+    echo '<p class="vote-modal-meta" data-modal-meta></p></div>';
+    echo '<button class="vote-modal-close" type="button" data-modal-close aria-label="Close">' . icon('x') . '</button>';
+    echo '</header>';
+    echo '<ul class="vote-modal-list" data-modal-list></ul>';
+    echo '</div></dialog>';
+}
 layout_end();

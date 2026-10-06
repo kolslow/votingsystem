@@ -269,7 +269,10 @@ function render_dashboard(): void
     echo '<p class="hint">Opens the registration and voting page from this server address.</p></div></div>';
     echo '<div id="qrcode" class="qr" data-url="' . h($url) . '"></div>';
     echo '<p class="url">' . icon('link') . '<span>' . h($url) . '</span></p>';
-    echo '</section>';
+    echo '<div class="qr-actions">';
+    echo '<button class="btn" type="button" data-qr-download><span>Download</span></button>';
+    echo '<button class="btn btn-navy" type="button" data-qr-print><span>Print</span></button>';
+    echo '</div></section>';
 
     echo '<section class="card span-2">';
     echo '<div class="card-head"><span class="card-head-icon">' . icon('users') . '</span><div><h2>Roster</h2>';
