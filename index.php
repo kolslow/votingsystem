@@ -4,7 +4,7 @@ declare(strict_types=1);
 require __DIR__ . '/lib.php';
 
 if (!mysql_ok()) {
-    layout_start('Best Outfit');
+    layout_start('Best Dress');
     echo '<section class="card"><h2>MySQL is not running</h2>';
     echo '<p>' . h(db_down_message()) . '</p></section>';
     layout_end();
@@ -12,7 +12,7 @@ if (!mysql_ok()) {
 }
 
 if (!installed()) {
-    layout_start('Best Outfit');
+    layout_start('Best Dress');
     echo '<section class="card"><h2>Setup needed</h2>';
     echo '<p>Create the database before anyone registers.</p>';
     echo '<a class="btn" href="install.php">Install</a></section>';
@@ -59,7 +59,7 @@ if ($view === 'enter' && $phase !== 'vote' && $phase !== 'ended') {
     redirect($pending ? 'index.php?view=code' : 'index.php');
 }
 
-layout_start('Best Outfit', '', [
+layout_start('Best Dress', '', [
     'data-phase' => $phase,
     'data-watch' => '1',
 ]);
@@ -69,7 +69,7 @@ echo '<p class="lede">' . icon('calendar') . '<span>' . h(date_label($bounds['re
 if (($view === 'code' || $view === 'wait') && $phase !== 'ended' && $pending) {
     render_code_screen($pending, $bounds);
 } elseif ($voter && has_voted((int) $voter['id']) && $view !== 'enter') {
-    render_thanks($voter);
+    render_thanks($voter, $bounds);
 } elseif ($phase === 'vote' && $voter && $view !== 'enter') {
     render_ballot($voter);
 } elseif ($phase === 'vote') {
@@ -421,7 +421,7 @@ function render_choice(string $field, array $person): void
     echo '</label>';
 }
 
-function render_thanks(array $voter): void
+function render_thanks(array $voter, array $bounds): void
 {
     $celebrate = !empty($_SESSION['celebrate']);
     unset($_SESSION['celebrate']);
@@ -431,6 +431,24 @@ function render_thanks(array $voter): void
     echo '<p class="kicker">Vote counted</p>';
     echo '<h2>Thank you for voting!</h2>';
     echo '<p class="hint">' . h($voter['name']) . ', your ballot is in. This code cannot be used again.</p>';
+    echo '</section></div>';
+    render_results_countdown($bounds);
+}
+
+function render_results_countdown(array $bounds): void
+{
+    $endMs = ms_of($bounds['end']);
+    $nowMs = ms_of(app_now());
+    $opens = clock_label($bounds['end']);
+    echo '<div class="stage">';
+    echo '<section class="card countdown-card" data-countdown="' . $endMs . '" data-countdown-key="end" data-server-now="' . $nowMs . '" data-redirect="results.php">';
+    echo '<p class="kicker" data-countdown-title>Results in</p>';
+    render_timer_blocks();
+    echo '<p class="hint countdown-note">' . icon('clock') . '<span>Results open at ' . h($opens) . '</span></p>';
+    echo '<button class="btn btn-xl btn-vote" id="vote-now" type="button" data-go="results.php" disabled>';
+    echo '<span class="when-locked"><span>View result</span></span>';
+    echo '<span class="when-ready"><span>View result</span>' . icon('arrow') . '</span>';
+    echo '</button>';
     echo '</section></div>';
 }
 

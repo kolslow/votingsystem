@@ -496,7 +496,7 @@ function voters_for(string $column): array
     return $grouped;
 }
 
-function render_tally(string $title, string $gender, string $column, string $emptyNote = ''): void
+function render_tally(string $title, string $gender, string $column, string $emptyNote = '', bool $showVoters = false): void
 {
     if ($column !== 'male_id' && $column !== 'female_id') {
         return;
@@ -511,7 +511,7 @@ function render_tally(string $title, string $gender, string $column, string $emp
     );
     $stmt->execute([$gender]);
     $rows = $stmt->fetchAll();
-    $voters = voters_for($column);
+    $voters = $showVoters ? voters_for($column) : [];
     $kind = $gender === 'male' ? 'male' : 'female';
     $total = 0;
     foreach ($rows as $row) {
@@ -648,7 +648,7 @@ function layout_start(string $title, string $bodyClass = '', array $attrs = [], 
 function layout_end(bool $withQr = false): void
 {
     echo '</main>';
-    echo '<footer class="foot"><span>FEMFI</span><i aria-hidden="true"></i><span>Best Outfit</span></footer>';
+    echo '<footer class="foot"><span>FEMFI</span><i aria-hidden="true"></i><span>Best Dress</span></footer>';
     if ($withQr) {
         echo '<script src="' . h(asset_url('assets/qrcode.js')) . '"></script>';
     }

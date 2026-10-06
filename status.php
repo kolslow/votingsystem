@@ -19,5 +19,6 @@ echo json_encode([
     'phase' => phase_of($settings),
     'regStart' => ms_of($bounds['reg']),
     'voteStart' => ms_of($bounds['vote']),
+    'voteEnd' => ms_of($bounds['end']),
     'serverNow' => ms_of(app_now()),
 ]);

@@ -55,6 +55,11 @@
       setUnit("m", pad(Math.floor((total % 3600) / 60)));
       setUnit("s", pad(total % 60));
       if (remaining <= 0) {
+        var redirectTo = card.getAttribute("data-redirect");
+        if (redirectTo) {
+          window.location.href = redirectTo;
+          return;
+        }
         var reloadAtZero = card.getAttribute("data-reload-at-zero") === "1";
         if (reloadAtZero) {
           if (!sessionStorage.getItem(reloadKey)) {
@@ -97,6 +102,8 @@
           }
           if (countdownKey === "reg") {
             target = Number(data.regStart);
+          } else if (countdownKey === "end") {
+            target = Number(data.voteEnd);
           } else {
             target = Number(data.voteStart);
           }
@@ -105,6 +112,11 @@
           if (current && data.phase !== current) {
             if (countdownKey === "vote" && data.phase === "vote") {
               document.body.setAttribute("data-phase", "vote");
+              tick();
+              return;
+            }
+            if (countdownKey === "end" && data.phase === "ended") {
+              document.body.setAttribute("data-phase", "ended");
               tick();
               return;
             }

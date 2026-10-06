@@ -19,14 +19,21 @@ if (!installed()) {
     exit;
 }
 
-if (empty($_SESSION['admin'])) {
-    flash('Sign in to view results.');
-    redirect('admin.php');
-}
-
 $settings = settings();
 $bounds = event_bounds($settings);
 $phase = phase_of($settings);
+$isAdmin = !empty($_SESSION['admin']);
+
+if (!$isAdmin && $phase !== 'ended') {
+    layout_start('Results');
+    echo '<div class="stage"><section class="card">';
+    echo '<h2>Results open at ' . h(clock_label($bounds['end'])) . '</h2>';
+    echo '<p class="hint">The standings appear when voting ends.</p>';
+    echo '<a class="btn" href="index.php">Back to voting</a>';
+    echo '</section></div>';
+    layout_end();
+    exit;
+}
 $counts = db()->query(
     'SELECT
         (SELECT COUNT(*) FROM employees) AS people,
@@ -49,10 +56,12 @@ if ($phase === 'vote') {
 }
 echo '<p class="meta-line">' . h(date_label($bounds['vote'])) . '<i aria-hidden="true"></i>';
 echo '<b data-total-votes>' . $ballots . '</b>&nbsp;<span data-total-label>' . ($ballots === 1 ? 'total vote' : 'total votes') . '</span></p>';
-echo '<a class="text-link" href="admin.php">Back to admin</a>';
+if ($isAdmin) {
+    echo '<a class="text-link" href="admin.php">Back to admin</a>';
+}
 echo '</div>';
 echo '<div class="stage stage-wide"><div class="boards">';
-render_tally('Best male outfit', 'male', 'male_id', $emptyNote);
-render_tally('Best female outfit', 'female', 'female_id', $emptyNote);
+render_tally('Best male outfit', 'male', 'male_id', $emptyNote, $isAdmin);
+render_tally('Best female outfit', 'female', 'female_id', $emptyNote, $isAdmin);
 echo '</div></div>';
 layout_end();
