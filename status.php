@@ -22,3 +22,4 @@ echo json_encode([
     'voteEnd' => ms_of($bounds['end']),
     'serverNow' => ms_of(app_now()),
 ]);
+
