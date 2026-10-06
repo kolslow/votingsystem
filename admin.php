@@ -251,14 +251,14 @@ function render_dashboard(): void
     echo csrf_field();
     echo '<input type="hidden" name="action" value="save_schedule">';
     echo '<label for="event_date">Event date</label>';
-    echo '<input id="event_date" type="date" name="event_date" required value="' . h($settings['event_date']) . '">';
+    echo '<input id="event_date" type="date" name="event_date" required autocomplete="off">';
     echo '<div class="hour-grid">';
     echo '<div><label for="reg_start">Registration opens</label>';
-    echo '<input id="reg_start" type="time" name="reg_start" required value="' . h(time_input_value($settings['reg_start'])) . '"></div>';
+    echo '<input id="reg_start" type="time" name="reg_start" required autocomplete="off"></div>';
     echo '<div><label for="vote_start">Voting starts</label>';
-    echo '<input id="vote_start" type="time" name="vote_start" required value="' . h(time_input_value($settings['vote_start'])) . '"></div>';
+    echo '<input id="vote_start" type="time" name="vote_start" required autocomplete="off"></div>';
     echo '<div><label for="vote_end">Voting ends</label>';
-    echo '<input id="vote_end" type="time" name="vote_end" required value="' . h(time_input_value($settings['vote_end'])) . '"></div>';
+    echo '<input id="vote_end" type="time" name="vote_end" required autocomplete="off"></div>';
     echo '</div>';
     echo '<button class="btn" type="submit"><span>Save hours</span>' . icon('check') . '</button>';
     echo '<p class="hint form-note">' . icon('alert') . '<span>Saving a different date or time clears the previous registrations and votes.</span></p>';

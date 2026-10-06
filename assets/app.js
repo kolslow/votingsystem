@@ -189,8 +189,19 @@
   });
 
   document.querySelectorAll("[data-code-input]").forEach(function (codeInput) {
+    function cleanCode(value) {
+      return value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+    }
+    codeInput.addEventListener("paste", function (event) {
+      var data = event.clipboardData || window.clipboardData;
+      if (!data) {
+        return;
+      }
+      event.preventDefault();
+      codeInput.value = cleanCode(data.getData("text"));
+    });
     codeInput.addEventListener("input", function () {
-      codeInput.value = codeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+      codeInput.value = cleanCode(codeInput.value);
     });
   });
 

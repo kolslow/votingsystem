@@ -468,6 +468,24 @@ function lan_ips(): array
     return $ips;
 }
 
+function voters_for(string $column): array
+{
+    if ($column !== 'male_id' && $column !== 'female_id') {
+        return [];
+    }
+    $stmt = db()->query(
+        "SELECT v.$column AS candidate_id, e.name, e.department
+         FROM votes v
+         INNER JOIN employees e ON e.id = v.voter_id
+         ORDER BY e.name ASC, e.id ASC"
+    );
+    $grouped = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $grouped[(int) $row['candidate_id']][] = $row;
+    }
+    return $grouped;
+}
+
 function render_tally(string $title, string $gender, string $column, string $emptyNote = ''): void
 {
     if ($column !== 'male_id' && $column !== 'female_id') {
@@ -483,6 +501,7 @@ function render_tally(string $title, string $gender, string $column, string $emp
     );
     $stmt->execute([$gender]);
     $rows = $stmt->fetchAll();
+    $voters = voters_for($column);
     $kind = $gender === 'male' ? 'male' : 'female';
     $total = 0;
     foreach ($rows as $row) {
@@ -492,7 +511,12 @@ function render_tally(string $title, string $gender, string $column, string $emp
 
     $sig = [];
     foreach ($rows as $row) {
-        $sig[] = (int) $row['id'] . ((int) $row['votes'] === $top && $top > 0 ? '*' : '');
+        $names = [];
+        foreach ($voters[(int) $row['id']] ?? [] as $voter) {
+            $names[] = $voter['name'];
+        }
+        $mark = (int) $row['votes'] === $top && $top > 0 ? '*' : '';
+        $sig[] = (int) $row['id'] . $mark . ':' . implode('|', $names);
     }
 
     echo '<section class="board board-' . $kind . '" data-board="' . $kind . '" data-sig="' . h(implode(',', $sig)) . '">';
@@ -551,6 +575,16 @@ function render_tally(string $title, string $gender, string $column, string $emp
         echo '<div class="rank-score"><b data-num>' . $votes . '</b><small><span data-pct>' . $pct . '</span>%</small></div>';
         echo '</div>';
         echo '<div class="meter" role="presentation"><span data-meter style="--w:' . $pct . '%"></span></div>';
+        $people = $voters[(int) $row['id']] ?? [];
+        if ($people !== []) {
+            echo '<div class="voters">';
+            echo '<p class="voters-label">Voted by</p>';
+            echo '<ul>';
+            foreach ($people as $voter) {
+                echo '<li><strong>' . h($voter['name']) . '</strong><span>' . h($voter['department']) . '</span></li>';
+            }
+            echo '</ul></div>';
+        }
         echo '</div>';
         echo '</li>';
     }
@@ -565,22 +599,6 @@ function time_input_value(string $time): string
 function ms_of(DateTimeImmutable $dt): int
 {
     return $dt->getTimestamp() * 1000;
-}
-
-function nav_bar(string $current): string
-{
-    $items = [
-        ['index', 'index.php', 'vote', 'Vote'],
-        ['results', 'results.php', 'chart', 'Results'],
-        ['admin', 'admin.php', 'shield', 'Admin'],
-    ];
-    $html = '<nav class="nav" aria-label="Main"><div class="nav-links">';
-    foreach ($items as [$key, $href, $iconName, $label]) {
-        $active = $current === $key;
-        $html .= '<a class="nav-link' . ($active ? ' is-active' : '') . '" href="' . $href . '"'
-            . ($active ? ' aria-current="page"' : '') . '>' . icon($iconName) . '<span>' . $label . '</span></a>';
-    }
-    return $html . '</div></nav>';
 }
 
 function layout_start(string $title, string $bodyClass = '', array $attrs = [], bool $hero = true): void
@@ -604,7 +622,6 @@ function layout_start(string $title, string $bodyClass = '', array $attrs = [], 
     echo '</head><body class="' . h($class) . '"' . $extra . '>';
     echo '<div class="bg" aria-hidden="true"><span class="bg-photo"></span><span class="orb orb-a"></span><span class="orb orb-b"></span>';
     echo '<span class="orb orb-c"></span><span class="bg-spot"></span><span class="bg-dots"></span></div>';
-    echo nav_bar($script);
     if ($hero) {
         echo '<header class="hero"><p class="brand">FEMFI</p><h1 class="title">' . h($title) . '</h1>';
         echo '<span class="title-rule" aria-hidden="true"></span></header>';
