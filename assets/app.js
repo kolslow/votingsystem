@@ -393,6 +393,45 @@
     });
   });
 
+  document.querySelectorAll("[data-copy-code]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      var wrap = button.closest(".code");
+      var value = wrap ? wrap.querySelector("[data-code]") : null;
+      var text = value ? value.textContent.replace(/\s+/g, "") : "";
+      if (!text) {
+        return;
+      }
+      function markCopied() {
+        button.classList.add("is-copied");
+        button.setAttribute("aria-label", "Copied");
+        window.setTimeout(function () {
+          button.classList.remove("is-copied");
+          button.setAttribute("aria-label", "Copy voting code");
+        }, 1600);
+      }
+      function fallbackCopy() {
+        var area = document.createElement("textarea");
+        area.value = text;
+        area.setAttribute("readonly", "");
+        area.style.position = "fixed";
+        area.style.left = "-9999px";
+        document.body.appendChild(area);
+        area.select();
+        document.execCommand("copy");
+        area.remove();
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(markCopied).catch(function () {
+          fallbackCopy();
+          markCopied();
+        });
+        return;
+      }
+      fallbackCopy();
+      markCopied();
+    });
+  });
+
   document.querySelectorAll("[data-code-input]").forEach(function (codeInput) {
     function cleanCode(value) {
       return value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);

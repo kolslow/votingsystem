@@ -325,7 +325,12 @@ function render_code_screen(array $employee, array $bounds): void
     echo '<h2>' . h($employee['name']) . '</h2>';
     echo '<p class="hint">' . h($employee['department']) . ' · ' . h(ucfirst($employee['gender'])) . '</p>';
     echo '<p class="label">Your voting code</p>';
-    echo '<p class="code">' . h($employee['code']) . '</p>';
+    echo '<div class="code">';
+    echo '<span class="code-value" data-code>' . h($employee['code']) . '</span>';
+    echo '<button type="button" class="code-copy" data-copy-code aria-label="Copy voting code">';
+    echo '<span class="code-copy-idle">' . icon('copy') . '</span>';
+    echo '<span class="code-copy-done">' . icon('check') . '</span>';
+    echo '</button></div>';
     echo '<p class="hint">Keep this code. You will type it when voting starts. It works on any phone or Wi-Fi.</p>';
     echo '</section></div>';
     render_countdown($bounds, null);
